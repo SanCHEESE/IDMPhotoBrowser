@@ -379,7 +379,7 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
     self.view.alpha = 0.0f;
     
     UIImage *imageFromView = _scaleImage ? _scaleImage : [self getImageFromView:_senderViewForAnimation];
-    imageFromView = [self rotateImageToCurrentOrientation:imageFromView];
+    //    imageFromView = [self rotateImageToCurrentOrientation:imageFromView];
     
     _senderViewOriginalFrame = [_senderViewForAnimation.superview convertRect:_senderViewForAnimation.frame toView:nil];
     
@@ -405,6 +405,7 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
         [fadeView removeFromSuperview];
         [resizableImageView removeFromSuperview];
     };
+    
     
     [UIView animateWithDuration:_animationDuration animations:^{
         fadeView.backgroundColor = self.useWhiteBackgroundColor ? [UIColor whiteColor] : [UIColor blackColor];
@@ -435,8 +436,8 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
     UIImage *imageFromView = [scrollView.photo underlyingImage];
     
     CGRect screenBound = [[UIScreen mainScreen] bounds];
-    CGFloat screenWidth = screenBound.size.width;
-    CGFloat screenHeight = screenBound.size.height;
+    CGFloat screenWidth = UIDeviceOrientationIsLandscape([UIDevice currentDevice].orientation) ? screenBound.size.height : screenBound.size.width;
+    CGFloat screenHeight = UIDeviceOrientationIsLandscape([UIDevice currentDevice].orientation) ? screenBound.size.width : screenBound.size.height;
     
     float scaleFactor = imageFromView.size.width / screenWidth;
     
@@ -445,6 +446,7 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
     fadeView.alpha = fadeAlpha;
     [_applicationWindow addSubview:fadeView];
     
+    // TODO: make shit
     UIImageView *resizableImageView = [[UIImageView alloc] initWithImage:imageFromView];
     resizableImageView.frame = (imageFromView) ? CGRectMake(0, (screenHeight/2)-((imageFromView.size.height / scaleFactor)/2)+scrollView.frame.origin.y, screenWidth, imageFromView.size.height / scaleFactor) : CGRectZero;
     resizableImageView.contentMode = UIViewContentModeScaleAspectFill;
@@ -466,35 +468,38 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
         [self dismissPhotoBrowserAnimated:NO];
     };
     
-    [UIView animateWithDuration:_animationDuration animations:^{
-        fadeView.alpha = 0;
-        self.view.backgroundColor = [UIColor clearColor];
-        
-        CGFloat angle = atan2f(self.view.transform.b, self.view.transform.a);
-        if([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeRight) {
-            angle += M_PI/2;
-        } else if ([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeLeft) {
-            angle -= M_PI/2;
-        } else {
-            angle = 0;
-        }
-        resizableImageView.transform = CGAffineTransformMakeRotation(angle);
-    } completion:nil];
-    
-    if(_usePopAnimation)
-    {
-        [self animateView:resizableImageView
-                  toFrame:_senderViewOriginalFrame
-               completion:completion];
-    }
-    else
-    {
+    [self animateResizableImageViewToCurrentDeviceOrientation:resizableImageView completion:^{
         [UIView animateWithDuration:_animationDuration animations:^{
-            resizableImageView.layer.frame = _senderViewOriginalFrame;
-        } completion:^(BOOL finished) {
-            completion();
-        }];
-    }
+            fadeView.alpha = 0;
+            self.view.backgroundColor = [UIColor clearColor];
+        } completion:nil];
+        
+        if(_usePopAnimation) {
+            [self animateView:resizableImageView
+                      toFrame:_senderViewOriginalFrame
+                   completion:completion];
+        } else {
+            [UIView animateWithDuration:_animationDuration animations:^{
+                resizableImageView.layer.frame = _senderViewOriginalFrame;
+            } completion:^(BOOL finished) {
+                completion();
+            }];
+        }
+    }];
+}
+
+- (void)animateResizableImageViewToCurrentDeviceOrientation:(UIImageView *)resizableImageView completion:(void(^)(void))completion {
+    [UIView animateWithDuration:_animationDuration animations:^{
+        CGFloat angle = 0;
+        if([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeRight) {
+            angle = -M_PI/2;
+        } else if ([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeLeft) {
+            angle = M_PI/2;
+        }
+        resizableImageView.transform = CGAffineTransformRotate(CGAffineTransformIdentity, angle);
+    } completion:^(BOOL finished) {
+        completion();
+    }];
 }
 
 #pragma mark - Genaral
@@ -911,24 +916,7 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
 #pragma mark - Notification Handling
 
 - (void)handleDeviceOrientationDidChangeNotification:(NSNotification *)notification {
-    
-    UIDevice *currentDevice = notification.object;
-    CGFloat angle = 0;
-    switch ([currentDevice orientation]) {
-        case UIDeviceOrientationLandscapeLeft:
-            angle = M_PI/2;
-            break;
-        case UIDeviceOrientationLandscapeRight:
-            angle = -M_PI/2;
-        default:
-            break;
-    }
-    
-    [UIView animateWithDuration:0.3 animations:^{
-        self.view.transform = CGAffineTransformRotate(CGAffineTransformIdentity, angle);
-        self.view.frame = [UIScreen mainScreen].bounds;
-    }];
-    
+    [self updateViewRotationForCurrentInterfaceOrientation];
 }
 
 #pragma mark IDMPhoto Loading Notification
@@ -1363,6 +1351,28 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
             completion();
         }];
     }
+}
+
+#pragma mark - Rotation
+
+- (void)updateViewRotationForCurrentInterfaceOrientation
+{
+    UIDevice *currentDevice = [UIDevice currentDevice];
+    CGFloat angle = 0;
+    switch ([currentDevice orientation]) {
+        case UIDeviceOrientationLandscapeLeft:
+            angle = M_PI/2;
+            break;
+        case UIDeviceOrientationLandscapeRight:
+            angle = -M_PI/2;
+        default:
+            break;
+    }
+    
+    [UIView animateWithDuration:_animationDuration animations:^{
+        self.view.transform = CGAffineTransformRotate(CGAffineTransformIdentity, angle);
+        self.view.frame = [UIScreen mainScreen].bounds;
+    }];
 }
 
 @end
