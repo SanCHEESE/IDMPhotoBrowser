@@ -8,6 +8,7 @@
 
 #import "AppDelegate.h"
 #import "Menu.h"
+#import "CustomNavigationController.h"
 
 @implementation AppDelegate
 
@@ -19,12 +20,17 @@
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     
     Menu *menu = [[Menu alloc] initWithStyle:UITableViewStyleGrouped];
-    self.viewController = (UIViewController *)[[UINavigationController alloc] initWithRootViewController:menu];
+    self.viewController = [[CustomNavigationController alloc] initWithRootViewController:menu];
     
     self.window.rootViewController = self.viewController;
     [self.window makeKeyAndVisible];
     
     return YES;
+}
+
+- (NSUInteger)application:(UIApplication *)application supportedInterfaceOrientationsForWindow:(UIWindow *)window
+{
+    return UIInterfaceOrientationMaskAllButUpsideDown;
 }
 
 @end
