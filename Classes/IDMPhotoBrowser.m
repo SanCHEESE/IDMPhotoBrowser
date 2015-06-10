@@ -98,7 +98,7 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
 - (CGRect)frameForPageAtIndex:(NSUInteger)index;
 - (CGSize)contentSizeForPagingScrollView;
 - (CGPoint)contentOffsetForPageAtIndex:(NSUInteger)index;
-- (CGRect)frameForToolbarAtOrientation:(UIInterfaceOrientation)orientation;
+- (CGRect)frameForToolbarAtOrientation:(UIDeviceOrientation)orientation;
 - (CGRect)frameForDoneButtonAtOrientation:(UIInterfaceOrientation)orientation;
 - (CGRect)frameForCaptionView:(IDMCaptionView *)captionView atIndex:(NSUInteger)index;
 
@@ -435,25 +435,30 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
     
     UIImage *imageFromView = [scrollView.photo underlyingImage];
     
-    CGRect screenBound = [[UIScreen mainScreen] bounds];
-    CGFloat screenWidth = UIDeviceOrientationIsLandscape([UIDevice currentDevice].orientation) ? screenBound.size.height : screenBound.size.width;
-    CGFloat screenHeight = UIDeviceOrientationIsLandscape([UIDevice currentDevice].orientation) ? screenBound.size.width : screenBound.size.height;
+    CGFloat screenWidth = [UIScreen mainScreen].bounds.size.width;
+    CGFloat sreenHeight = [UIScreen mainScreen].bounds.size.height;
     
-    float scaleFactor = imageFromView.size.width / screenWidth;
-    
-    UIView *fadeView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, screenWidth, screenHeight)];
+    UIView *fadeView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, screenWidth, sreenHeight)];
     fadeView.backgroundColor = self.useWhiteBackgroundColor ? [UIColor whiteColor] : [UIColor blackColor];
     fadeView.alpha = fadeAlpha;
     [_applicationWindow addSubview:fadeView];
     
-    // TODO: make shit
+    
     UIImageView *resizableImageView = [[UIImageView alloc] initWithImage:imageFromView];
-    resizableImageView.frame = (imageFromView) ? CGRectMake(0, (screenHeight/2)-((imageFromView.size.height / scaleFactor)/2)+scrollView.frame.origin.y, screenWidth, imageFromView.size.height / scaleFactor) : CGRectZero;
+    [self rotateViewToCurrentInterfaceOrientation:resizableImageView clockwise:NO];
+    resizableImageView.frame = ({
+        CGRect newFrame = CGRectZero;
+        if(imageFromView) {
+            newFrame = [scrollView convertRect:scrollView.photoImageView.frame toView:_applicationWindow];
+        }
+        newFrame;
+    });
+    
     resizableImageView.contentMode = UIViewContentModeScaleAspectFill;
     resizableImageView.backgroundColor = [UIColor clearColor];
     resizableImageView.clipsToBounds = YES;
-    
     [_applicationWindow addSubview:resizableImageView];
+    
     self.view.hidden = YES;
     
     void (^completion)() = ^() {
@@ -490,13 +495,7 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
 
 - (void)animateResizableImageViewToCurrentDeviceOrientation:(UIImageView *)resizableImageView completion:(void(^)(void))completion {
     [UIView animateWithDuration:_animationDuration animations:^{
-        CGFloat angle = 0;
-        if([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeRight) {
-            angle = -M_PI/2;
-        } else if ([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeLeft) {
-            angle = M_PI/2;
-        }
-        resizableImageView.transform = CGAffineTransformRotate(CGAffineTransformIdentity, angle);
+        [self rotateViewToCurrentInterfaceOrientation:resizableImageView clockwise:YES];
     } completion:^(BOOL finished) {
         completion();
     }];
@@ -734,17 +733,31 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
 #pragma mark - Layout
 
 - (void)viewWillLayoutSubviews {
+    
     // Flag
     _performingLayout = YES;
     
-    UIInterfaceOrientation currentOrientation = [UIApplication sharedApplication].statusBarOrientation;
+    [self layoutContent];
+    [self layoutControlsForCurrentOrientation];
+    
+    _performingLayout = NO;
+    
+    // Super
+    [super viewWillLayoutSubviews];
+}
+
+- (void)layoutControlsForCurrentOrientation
+{
+    UIDeviceOrientation currentOrientation = [UIDevice currentDevice].orientation;
     
     // Toolbar
     _toolbar.frame = [self frameForToolbarAtOrientation:currentOrientation];
     
     // Done button
     _doneButton.frame = [self frameForDoneButtonAtOrientation:currentOrientation];
-    
+}
+
+- (void)layoutContent {
     
     // Remember index
     NSUInteger indexPriorToLayout = _currentPageIndex;
@@ -772,11 +785,8 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
     
     // Reset
     _currentPageIndex = indexPriorToLayout;
-    _performingLayout = NO;
-    
-    // Super
-    [super viewWillLayoutSubviews];
 }
+
 
 - (void)performLayout {
     // Setup
@@ -916,6 +926,7 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
 #pragma mark - Notification Handling
 
 - (void)handleDeviceOrientationDidChangeNotification:(NSNotification *)notification {
+    _rotating = YES;
     [self updateViewRotationForCurrentInterfaceOrientation];
 }
 
@@ -1081,15 +1092,10 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
     return CGPointMake(newOffset, 0);
 }
 
-- (BOOL)isLandscape:(UIInterfaceOrientation)orientation
-{
-    return UIInterfaceOrientationIsLandscape(orientation);
-}
-
-- (CGRect)frameForToolbarAtOrientation:(UIInterfaceOrientation)orientation {
+- (CGRect)frameForToolbarAtOrientation:(UIDeviceOrientation)orientation {
     CGFloat height = 44;
     
-    if ([self isLandscape:orientation])
+    if (UIDeviceOrientationIsLandscape(orientation))
         height = 32;
     
     return CGRectMake(0, self.view.bounds.size.height - height, self.view.bounds.size.width, height);
@@ -1355,8 +1361,20 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
 
 #pragma mark - Rotation
 
+- (void)rotateViewToCurrentInterfaceOrientation:(UIView *)view clockwise:(BOOL)clockwise
+{
+    CGFloat angle = atan2f(view.transform.b, view.transform.a); ;
+    if([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeRight) {
+        angle = angle + (clockwise ? M_PI/2 : -M_PI/2);
+    } else if ([UIDevice currentDevice].orientation == UIDeviceOrientationLandscapeLeft) {
+        angle = angle + (clockwise ? -M_PI/2 : M_PI/2);
+    }
+    view.transform = CGAffineTransformRotate(CGAffineTransformIdentity, angle);
+}
+
 - (void)updateViewRotationForCurrentInterfaceOrientation
 {
+    _rotating = YES;
     UIDevice *currentDevice = [UIDevice currentDevice];
     CGFloat angle = 0;
     switch ([currentDevice orientation]) {
@@ -1372,6 +1390,10 @@ NSLocalizedStringFromTableInBundle((key), nil, [NSBundle bundleWithPath:[[NSBund
     [UIView animateWithDuration:_animationDuration animations:^{
         self.view.transform = CGAffineTransformRotate(CGAffineTransformIdentity, angle);
         self.view.frame = [UIScreen mainScreen].bounds;
+        [self layoutControlsForCurrentOrientation];
+        [self layoutContent];
+    } completion:^(BOOL finished) {
+        _rotating = NO;
     }];
 }
 
